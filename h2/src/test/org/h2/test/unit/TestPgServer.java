@@ -826,14 +826,16 @@ public class TestPgServer extends TestDb {
                 Connection conn = DriverManager.getConnection(
                         "jdbc:postgresql://localhost:5535/pgserver", "sa", "sa");
                 Statement stat = conn.createStatement();
+                PreparedStatement ps = conn.prepareStatement("INSERT INTO test (id, x1) VALUES (1, ?)");
         ) {
             stat.execute("CREATE TABLE test (id int primary key, x1 varchar array)");
-            stat.execute("INSERT INTO test (id, x1) VALUES (1, ARRAY['abc', 'd\\\"e', '{,}'])");
+            ps.setObject(1, new String[] {"'a'b'c'", "d\\\"e", "{,}"}, Types.ARRAY);
+            ps.executeUpdate();
             try (ResultSet rs = stat.executeQuery(
                     "SELECT x1 FROM test WHERE id = 1")) {
                 assertTrue(rs.next());
                 Object[] arr = (Object[]) rs.getArray(1).getArray();
-                assertEquals("abc", arr[0]);
+                assertEquals("'a'b'c'", arr[0]);
                 assertEquals("d\\\"e", arr[1]);
                 assertEquals("{,}", arr[2]);
             }
