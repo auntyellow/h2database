@@ -826,15 +826,20 @@ public class TestPgServer extends TestDb {
                 Connection conn = DriverManager.getConnection(
                         "jdbc:postgresql://localhost:5535/pgserver", "sa", "sa");
                 Statement stat = conn.createStatement();
-                PreparedStatement ps = conn.prepareStatement("INSERT INTO test (id, x1) VALUES (1, ?)");
+                PreparedStatement ps = conn.prepareStatement("INSERT INTO test (id, x1, x2) VALUES (1, ?, ?)");
         ) {
-            stat.execute("CREATE TABLE test (id int primary key, x1 varchar array)");
-            ps.setObject(1, new String[] {"'a'b'c'", "d\\\"e", "{,}"}, Types.ARRAY);
+            stat.execute("CREATE TABLE test (id int primary key, x1 integer array, x2 varchar array)");
+            ps.setObject(1, new int[] {1, 2, 3}, Types.ARRAY);
+            ps.setObject(2, new String[] {"'a'b'c'", "d\\\"e", "{,}"}, Types.ARRAY);
             ps.executeUpdate();
             try (ResultSet rs = stat.executeQuery(
-                    "SELECT x1 FROM test WHERE id = 1")) {
+                    "SELECT x1, x2 FROM test WHERE id = 1")) {
                 assertTrue(rs.next());
                 Object[] arr = (Object[]) rs.getArray(1).getArray();
+                assertEquals(1, arr[0]);
+                assertEquals(2, arr[1]);
+                assertEquals(3, arr[2]);
+                arr = (Object[]) rs.getArray(2).getArray();
                 assertEquals("'a'b'c'", arr[0]);
                 assertEquals("d\\\"e", arr[1]);
                 assertEquals("{,}", arr[2]);
