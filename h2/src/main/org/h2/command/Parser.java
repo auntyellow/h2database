@@ -3597,6 +3597,12 @@ public class Parser {
                 Query query = parseQuery();
                 left = new ConditionInQuery(left, false, whenOperand, query, false, compareType);
                 read(CLOSE_PAREN);
+            } else if (compareType == Comparison.EQUAL
+                    && database.getMode().getEnum() == ModeEnum.PostgreSQL) {
+                ArrayFunction func = new ArrayFunction(readExpression(),
+                        left, null, ArrayFunction.ARRAY_CONTAINS);
+                left = func;
+                read(CLOSE_PAREN);
             } else {
                 reread(start);
                 left = new Comparison(compareType, left, readConcat(), whenOperand);
