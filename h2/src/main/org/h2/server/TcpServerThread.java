@@ -34,6 +34,7 @@ import org.h2.message.DbException;
 import org.h2.result.ResultColumn;
 import org.h2.result.ResultInterface;
 import org.h2.result.ResultWithGeneratedKeys;
+import org.h2.result.SimpleResult;
 import org.h2.store.LobStorageInterface;
 import org.h2.util.IOUtils;
 import org.h2.util.NetUtils;
@@ -350,20 +351,32 @@ public class TcpServerThread implements Runnable {
             cache.addObject(objectId, result);
             int columnCount = result.getVisibleColumnCount();
             int state = getState(old);
-            transfer.writeInt(state).writeInt(columnCount);
-            int rowCount;
+            int rowCount, fetch;
+            ResultInterface rowsResult;
             if (result.isLazy()) {
-                transfer.writeInt(-1);
-                rowCount = fetchSize;
+                SimpleResult simpleResult = new SimpleResult();
+                for (int i = 0; i < columnCount; i++) {
+                    // just for assertion in simpleResult.addRow()
+                    simpleResult.addColumn(result.getColumnName(i), result.getColumnType(i));
+                }
+                // throw before write status
+                for (int i = 0; i < fetchSize && result.next(); i++) {
+                    simpleResult.addRow(result.currentRow());
+                }
+                rowCount = -1;
+                fetch = fetchSize;
+                rowsResult = simpleResult;
             } else {
                 rowCount = result.getRowCount();
-                transfer.writeInt(rowCount);
-                rowCount = Math.min(rowCount, fetchSize);
+                fetch = Math.min(rowCount, fetchSize);
+                rowsResult = result;
             }
+            transfer.writeInt(state).writeInt(columnCount).writeInt(rowCount);
             for (int i = 0; i < columnCount; i++) {
+                // rowsResult has no full column info
                 ResultColumn.writeColumn(transfer, result, i);
             }
-            sendRows(result, rowCount);
+            sendRows(rowsResult, fetch);
             transfer.flush();
             break;
         }
@@ -457,6 +470,19 @@ public class TcpServerThread implements Runnable {
             int id = transfer.readInt();
             int count = transfer.readInt();
             ResultInterface result = (ResultInterface) cache.getObject(id, false);
+            if (result.isLazy()) {
+                int columnCount = result.getVisibleColumnCount();
+                SimpleResult simpleResult = new SimpleResult();
+                for (int i = 0; i < columnCount; i++) {
+                    // just for assertion in simpleResult.addRow()
+                    simpleResult.addColumn(result.getColumnName(i), result.getColumnType(i));
+                }
+                // throw before write status
+                for (int i = 0; i < count && result.next(); i++) {
+                    simpleResult.addRow(result.currentRow());
+                }
+                result = simpleResult;
+            }
             transfer.writeInt(SessionRemote.STATUS_OK);
             sendRows(result, count);
             transfer.flush();
@@ -576,15 +602,15 @@ public class TcpServerThread implements Runnable {
 
     private void sendRows(ResultInterface result, int count) throws IOException {
         for (int i = 0; i < count; i++) {
-           if (!result.next()) {
-               transfer.writeBoolean(false);
-               return;
-           }
-           transfer.writeBoolean(true);
-           Value[] v = result.currentRow();
-           for (int j = 0; j < result.getVisibleColumnCount(); j++) {
-               transfer.writeValue(v[j]);
-           }
+            if (!result.next()) {
+                transfer.writeBoolean(false);
+                return;
+            }
+            transfer.writeBoolean(true);
+            Value[] v = result.currentRow();
+            for (int j = 0; j < result.getVisibleColumnCount(); j++) {
+                transfer.writeValue(v[j]);
+            }
         }
     }
 
