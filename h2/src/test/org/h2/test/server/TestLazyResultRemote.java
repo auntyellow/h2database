@@ -37,25 +37,22 @@ public class TestLazyResultRemote extends TestDb {
 
     @Override
     public void test() throws Exception {
-        boolean originalLazy = config.lazy;
         deleteDb("test");
-        config.lazy = false;
-        testException();
-        testMultiStatements();
-        config.lazy = true;
-        testException();
-        testMultiStatements();
+        testException(false);
+        testException(true);
+        testMultiStatements(false);
+        testMultiStatements(true);
         deleteDb("test");
-        config.lazy = originalLazy;
     }
 
-    private void testException() throws Exception {
+    private void testException(boolean lazy) throws Exception {
         for (int fetchSize = 2; fetchSize <= 7; fetchSize ++) {
             try (
                 Connection conn = getConnection("test");
                 Statement stmt = conn.createStatement();
             ) {
                 stmt.setFetchSize(fetchSize);
+                stmt.execute("SET LAZY_QUERY_EXECUTION " + lazy);
                 stmt.execute("DROP TABLE IF EXISTS test");
                 stmt.execute("CREATE TABLE test (id INT PRIMARY KEY, x1 VARCHAR)");
                 stmt.execute("INSERT INTO test (id, x1) VALUES (1, '2'), (2, '3'), (3, '4')");
@@ -94,7 +91,7 @@ public class TestLazyResultRemote extends TestDb {
                     }
                     fail();
                 } catch (SQLDataException e) {
-                    if (!config.lazy || fetchSize == 7) {
+                    if (!lazy || fetchSize == 7) {
                         assertEquals(0, rowCount);
                         assertEquals(0, idSum);
                         assertEquals("", x1Concat.toString());
@@ -116,13 +113,14 @@ public class TestLazyResultRemote extends TestDb {
         }
     }
 
-    private void testMultiStatements() throws Exception {
+    private void testMultiStatements(boolean lazy) throws Exception {
         try (
             Connection conn = getConnection("test");
             Statement s1 = conn.createStatement();
             Statement s2 = conn.createStatement();
         ) {
             int count = 300;
+            s1.execute("SET LAZY_QUERY_EXECUTION " + lazy);
             s1.execute("DROP TABLE IF EXISTS test");
             s1.execute("CREATE TABLE test AS SELECT * FROM SYSTEM_RANGE(0, " + (count - 1) + ")");
             String query = "TABLE test";

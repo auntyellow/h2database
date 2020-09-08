@@ -606,7 +606,7 @@ public class SessionLocal extends Session implements TransactionStore.RollbackLi
                     "session closed");
         }
         Command command;
-        if (queryCacheSize > 0) {
+        if (!lazyQueryExecution && queryCacheSize > 0) {
             if (queryCache == null) {
                 queryCache = SmallLRUCache.newInstance(queryCacheSize);
                 modificationMetaID = database.getModificationMetaId();
