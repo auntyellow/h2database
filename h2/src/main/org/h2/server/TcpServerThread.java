@@ -22,6 +22,7 @@ import org.h2.engine.ConnectionInfo;
 import org.h2.engine.Constants;
 import org.h2.engine.Engine;
 import org.h2.engine.GeneratedKeysMode;
+import org.h2.engine.Session;
 import org.h2.engine.SessionLocal;
 import org.h2.engine.SessionRemote;
 import org.h2.engine.SysProperties;
@@ -34,7 +35,6 @@ import org.h2.message.DbException;
 import org.h2.result.ResultColumn;
 import org.h2.result.ResultInterface;
 import org.h2.result.ResultWithGeneratedKeys;
-import org.h2.result.SimpleResult;
 import org.h2.store.LobStorageInterface;
 import org.h2.util.IOUtils;
 import org.h2.util.NetUtils;
@@ -42,6 +42,7 @@ import org.h2.util.NetworkConnectionInfo;
 import org.h2.util.SmallLRUCache;
 import org.h2.util.SmallMap;
 import org.h2.value.Transfer;
+import org.h2.value.TypeInfo;
 import org.h2.value.Value;
 
 /**
@@ -354,18 +355,9 @@ public class TcpServerThread implements Runnable {
             int rowCount, fetch;
             ResultInterface rowsResult;
             if (result.isLazy()) {
-                SimpleResult simpleResult = new SimpleResult();
-                for (int i = 0; i < columnCount; i++) {
-                    // just for assertion in simpleResult.addRow()
-                    simpleResult.addColumn(result.getColumnName(i), result.getColumnType(i));
-                }
-                // throw before write status
-                for (int i = 0; i < fetchSize && result.next(); i++) {
-                    simpleResult.addRow(result.currentRow());
-                }
                 rowCount = -1;
                 fetch = fetchSize;
-                rowsResult = simpleResult;
+                rowsResult = loadRows(result, fetchSize);
             } else {
                 rowCount = result.getRowCount();
                 fetch = Math.min(rowCount, fetchSize);
@@ -471,17 +463,7 @@ public class TcpServerThread implements Runnable {
             int count = transfer.readInt();
             ResultInterface result = (ResultInterface) cache.getObject(id, false);
             if (result.isLazy()) {
-                int columnCount = result.getVisibleColumnCount();
-                SimpleResult simpleResult = new SimpleResult();
-                for (int i = 0; i < columnCount; i++) {
-                    // just for assertion in simpleResult.addRow()
-                    simpleResult.addColumn(result.getColumnName(i), result.getColumnType(i));
-                }
-                // throw before write status
-                for (int i = 0; i < count && result.next(); i++) {
-                    simpleResult.addRow(result.currentRow());
-                }
-                result = simpleResult;
+                result = loadRows(result, count);
             }
             transfer.writeInt(SessionRemote.STATUS_OK);
             sendRows(result, count);
@@ -633,6 +615,134 @@ public class TcpServerThread implements Runnable {
             Command cmd = (Command) cache.getObject(statementId, false);
             cmd.cancel();
         }
+    }
+
+    /**
+     * Load rows from a result, throw DbException before write status.
+     */
+    static ResultInterface loadRows(ResultInterface result, int count) {
+        ArrayList<Value[]> rows = new ArrayList<>();
+        for (int i = 0; i < count && result.next(); i++) {
+            rows.add(result.currentRow());
+        }
+        int columnCount = result.getVisibleColumnCount();
+        return new ResultInterface() {
+            private int rowId = -1;
+
+            @Override
+            public void reset() {
+                rowId = -1;
+            }
+
+            @Override
+            public Value[] currentRow() {
+                return rows.get(rowId);
+            }
+
+            @Override
+            public boolean next() {
+                int size = rows.size();
+                if (rowId < size) {
+                    return ++rowId < size;
+                }
+                return false;
+            }
+
+            @Override
+            public int getRowId() {
+                return rowId;
+            }
+
+            @Override
+            public boolean isAfterLast() {
+                return rowId >= rows.size();
+            }
+
+            @Override
+            public int getVisibleColumnCount() {
+                return columnCount;
+            }
+
+            @Override
+            public int getRowCount() {
+                return rows.size();
+            }
+
+            @Override
+            public boolean hasNext() {
+                return rowId < rows.size() - 1;
+            }
+
+            @Override
+            public boolean needToClose() {
+                return false;
+            }
+
+            @Override
+            public void close() {
+                // Do nothing for now
+            }
+
+            @Override
+            public String getAlias(int i) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public String getSchemaName(int i) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public String getTableName(int i) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public String getColumnName(int i) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public TypeInfo getColumnType(int i) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public boolean isAutoIncrement(int i) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public int getNullable(int i) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void setFetchSize(int fetchSize) {
+                // Ignored
+            }
+
+            @Override
+            public int getFetchSize() {
+                return 1;
+            }
+
+            @Override
+            public boolean isLazy() {
+                return false;
+            }
+
+            @Override
+            public boolean isClosed() {
+                return false;
+            }
+
+            @Override
+            public ResultInterface createShallowCopy(Session targetSession) {
+                return loadRows(result, count);
+            }
+        };
     }
 
     /**
