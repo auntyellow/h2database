@@ -9,6 +9,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLDataException;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.util.BitSet;
 
 import org.h2.test.TestBase;
@@ -42,6 +43,8 @@ public class TestLazyResultRemote extends TestDb {
         testException(true);
         testMultiStatements(false);
         testMultiStatements(true);
+        testTimestamp(false);
+        testTimestamp(true);
         deleteDb("test");
     }
 
@@ -141,4 +144,28 @@ public class TestLazyResultRemote extends TestDb {
         }
     }
 
+    private void testTimestamp(boolean lazy) throws Exception {
+        try (
+            Connection conn = getConnection("test");
+            Statement stat = conn.createStatement();
+        ) {
+            stat.execute("SET LAZY_QUERY_EXECUTION " + lazy);
+
+            Timestamp first;
+            try (ResultSet rs = stat.executeQuery("SELECT CURRENT_TIMESTAMP FROM DUAL")) {
+                rs.next();
+                first = rs.getTimestamp(1);
+            }
+
+            Thread.sleep(1);
+
+            Timestamp second;
+            try (ResultSet rs = stat.executeQuery("SELECT CURRENT_TIMESTAMP FROM DUAL")) {
+                rs.next();
+                second = rs.getTimestamp(1);
+            }
+
+            assertTrue(second.after(first));
+        }
+    }
 }
